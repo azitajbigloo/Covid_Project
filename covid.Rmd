@@ -1,0 +1,231 @@
+---
+title: "R code Example, COVID-19 Data"
+author: "Azita Jb"
+output: html_notebook
+---
+# COVID-19 Data
+Source: [ECDCP](https://ourworldindata.org/coronavirus-source-data)
+
+```{r, include=FALSE}
+# To import data in datafram
+library(data.table)
+# To make used of pipelining process and cleaning of data and descriptive analysis of data
+library(dplyr)
+
+# To clean the data 
+library(tidyverse)
+library(janitor)
+library(tidyr)
+
+# To create plots
+library(plotly) 
+
+library(lubridate)
+library(DT)
+library(data.table)  
+library(reshape2)
+library(zoo)
+library(httr)
+
+```
+
+# Import Data
+
+```{r}
+# read Data
+#cdata <- read.csv("C:/Users/azita/Documents/R/Rproject/owid-covid-data.csv",header=TRUE, sep= ",")
+GET("https://covid.ourworldindata.org/data/owid-covid-data.csv", authenticate(":",":",type="ntlm"), write_disk(tf <- tempfile(fileext = ".csv")))
+
+cdata <- read.csv(tf)
+# data summary
+#dim(cdata)
+#summary(cdata)
+#names(cdata)
+#colnames(cdata)
+
+
+# variable names
+cdata <- clean_names(cdata)
+
+# Missing Values
+# function: deleting NAs for specified columns 
+deleteNAs <- function(data, cols) {
+  completeVec <- complete.cases(data[, cols])
+  return(data[completeVec, ])
+}
+# deleting the observation with missing "location"
+cdata.clean <- deleteNAs(cdata,"location")
+
+# deleting the observation with missing "date"
+#cdata.clean <- deleteNAs(cdata1,"date")
+
+# "iso_code" upper case
+cdata.clean <- cdata.clean %>% mutate(iso_code= toupper(iso_code))
+
+# date type
+cdata.clean <- cdata.clean %>% mutate(date =as.Date(parse_date_time(date, c("ymd", "mdy"))))
+
+cdata.cleanH <- cdata.clean %>%  head(100)
+cdata.clean
+
+# datatable(cdata.cleanH, extensions = 'Buttons', 
+#           options = list( pageLeght = 5, dom = 'Bfrtip', columnDefs = list(list(visible=FALSE, targets=c(3,4))), 
+#                           buttons = c(I('colvis'),'copy','print','csv','excel','pdf')))
+```
+
+# Total cases based on Countries
+
+```{r, out.height="150%", out.width="150%"}
+
+covid.df <- subset(cdata.clean, cdata$location != "World")
+covidr.df <- covid.df %>% 
+             group_by(location) %>% 
+             summarise( total_cases_dummy = sum(new_cases, na.rm= TRUE), total_deaths_dummy = sum(new_deaths, na.rm= TRUE)) 
+
+covidr.df$location <- factor(covidr.df$location, levels = unique(covidr.df$location)[order(covidr.df$total_cases_dummy, decreasing = FALSE)])
+
+# cases.plot <- plot_ly(covidr.df, x = ~location, y = ~total_cases_dummy, 
+#                       name = 'Total Cases',
+#                       width = 1000, height = 800, 
+#                       type = 'bar',
+#                       marker = list(color = 'rgb(105, 83, 109)')) %>% 
+#               add_trace(y = ~covidr.df$total_deaths_dummy, 
+#                         name = 'Total Deaths',
+#                         marker = list(color = 'rgb(26,110,50)', width = .90)) %>% 
+#               layout(title = "Total Cases and Deaths based on Country",
+#                      xaxis = list(title = "Country"),
+#                      yaxis = list(title = "Total Cases and Deaths", automargin = TRUE),
+#                      barmode = 'gourp', bargap = .20) %>% 
+#               subplot(shareX = TRUE, nrows = 2)
+# cases.plot
+
+
+cases.plot1 <- plot_ly( 
+                  covidr.df, x = ~location, y = ~total_cases_dummy, 
+                        name = 'Total Cases',
+                        width = 1000, height = 700, 
+                        type = 'bar',
+                        marker = list(color = 'rgb(140,140,140)', width = .90))
+cases.plot2 <-  plot_ly(
+               covidr.df, x = ~location, y = ~total_deaths_dummy, 
+                    #  name = 'Total Cases',
+                        width = 1000, height = 700, 
+                        type = 'bar',
+                        name = 'Total Deaths',
+                        marker = list(color = 'rgb(150, 50, 50)', width = .90))
+              
+cases.plot<-  subplot(cases.plot1,cases.plot2, shareX = TRUE, nrows = 2) %>%  layout(title = "Total Cases and Deaths based on Country",
+                     xaxis = list(title = "Country"),
+                     yaxis = list(title = "Total Cases and Deaths", automargin = TRUE),
+                     barmode = 'gourp', bargap = .20,
+                     hovermode = "x unified") 
+cases.plot
+
+
+
+
+```
+
+# New Cased time series in World (based on Countries)
+```{r}
+
+covid.df <- arrange(covid.df, desc(covid.df$data), group_by = covid.df$location)
+
+newcases.plot <- plot_ly(covid.df, x = ~covid.df$date, y = ~covid.df$new_cases, 
+                         type = 'bar', 
+                         name = ~covid.df$location, 
+                         color = ~factor(covid.df$location),
+                         width = 1000, height = 800) %>%
+                layout(yaxis = list(title = 'New Cases'), xaxis = list(title ='Date'),
+                       barmode = 'stack')
+
+newcases.plot
+
+
+```
+# Canada Covid-19 Data 
+```{r}
+covidCA.df <- subset(covid.df, location == "Canada")
+
+covidCA.df
+# datatable(covidCA.df, extensions = 'Buttons', options = list( pageLeght = 5, dom = 'Bfrtip', columnDefs = list(list(visible=FALSE, targets=c(3,4))), buttons = c(I('colvis'),'copy','print','csv','excel','pdf')))
+```
+# Vaccinated poeple based on Countries
+```{r}
+
+vacc.df <- covid.df %>% 
+            filter(total_vaccinations_per_hundred > 0) %>%  
+            group_by(location) %>%
+            slice_max(total_vaccinations_per_hundred) 
+  
+vacc.plot <- plot_ly( x =~vacc.df$total_vaccinations_per_hundred, y=~vacc.df$location, 
+                     type = 'bar',height  = 1100, width = 900, 
+                     marker = list(color = 'rgb(31, 153, 112)', width = 5)) %>% 
+            layout(orientation = 'h', 
+                   title = "Total World Vaccinations",
+                   yaxis = list(title="Country"), 
+                   xaxis = list(title = "Total Vaccination per hundred"), 
+                   bargap = 200)
+vacc.plot
+```
+# New Cases and New Deaths
+```{r, out.height="150%", out.width="150%"}
+covidCA.df <- arrange(covidCA.df, desc(covidCA.df$data), group_by = covidCA.df$location)
+
+CAcases.plot <- plot_ly() %>%
+                 add_trace(x = ~covidCA.df$date, y = ~covidCA.df$new_cases, 
+                           name = "new cases",
+                           type = 'scatter', mode = 'line', 
+                           line = list(color = 'rgb(50, 50, 200)')) %>%    
+                 add_trace(x = ~covidCA.df$date, y = ~covidCA.df$new_deaths,
+                          yaxis = "y2", 
+                          name = "new deaths",
+                          type = 'scatter', mode = 'line',
+                          line = list(color = 'rgb(200, 50, 50)')) %>%
+                 layout(yaxis2 = list(overlaying = "y", side = "right", title = "New Deaths"),
+                         title = "Canada Daily Covid-19 Cases and Deaths",
+                         xaxis = list(title="Date"), yaxis = list(title = "New Cases"),
+                         hovermode = "x unified",
+                         width = 1000, height = 600)
+CAcases.plot
+
+```
+# New Cases and New Deaths time series with 7 day rolling average
+```{r, out.height="150%", out.width="150%"}
+covidCA.df <- covidCA.df %>%
+              mutate(death_rollingAvg5 = rollmean(new_deaths, k = 5, fill = NA),
+              death_rollingAvg7 = rollmean(new_deaths, k = 7, fill = NA))
+
+covidCA.df <- covidCA.df %>%
+               mutate(cases_rollingAvg7 = rollmean(new_cases, k = 5, fill = NA),
+                      cases_rollingAvg5 = rollmean(new_cases, k = 7, fill = NA))
+
+covidCA.df <- arrange(covidCA.df, desc(covidCA.df$data), group_by = covidCA.df$location)
+
+CAcases.plot <- plot_ly() %>%
+                add_trace(x = ~covidCA.df$date, y = ~covidCA.df$new_cases,  
+                          name = "new cases",
+                          type = 'scatter',mode = 'line', opacity = 0.5, 
+                          line = list(color = 'rgb(50, 50, 210)')) %>%  
+                add_trace(x = ~covidCA.df$date, y = ~covidCA.df$cases_rollingAvg7,  
+                          name = "7 day rolling average, new cases",
+                          type = 'scatter',mode = 'line',
+                          line = list(color = 'rgb(50, 50, 210)')) %>% 
+                add_trace(x = ~covidCA.df$date,  y = ~covidCA.df$new_deaths, yaxis = "y2", 
+                          name = "new deaths",
+                          type = 'scatter',mode = 'line', opacity = 0.5, 
+                          line = list(color = 'rgb(200, 50, 70)')) %>%
+                add_trace(x = ~covidCA.df$date,  y = ~covidCA.df$death_rollingAvg7, yaxis = "y2", 
+                          name = "7 day rolling average, new deaths",
+                          type = 'scatter',mode = 'line',
+                          line = list(color = 'rgb(200, 50, 70)')) %>%
+                layout(yaxis2 = list(overlaying = "y", side = "right", title = "New Deaths"), 
+                       title = "Canada Daily Covid-19 Cases and Deaths",
+                       xaxis = list(title="Date"), yaxis = list(title = "New Cases"),
+                       hovermode = "x unified",
+                       width = 1000, height = 600)
+CAcases.plot
+```
+
+
+
